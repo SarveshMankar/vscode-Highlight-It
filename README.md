@@ -79,7 +79,7 @@ Press `F5` to launch a new **Extension Development Host**.
 
 ## 🙌 Author
 
-Made with ❤️ by \[Your Name]
+Made with ❤️ by Sarvesh Mankar
 
 ---
 
