@@ -9,13 +9,20 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:extension.highlightSelection",
+    "onCommand:extension.clearHighlights"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "highlight-code.helloWorld",
-        "title": "Hello World"
+        "command": "extension.highlightSelection",
+        "title": "Highlight Selected Text"
+      },
+      {
+        "command": "extension.clearHighlights",
+        "title": "Clear Highlights"
       }
     ]
   },

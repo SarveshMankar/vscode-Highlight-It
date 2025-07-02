@@ -1,26 +1,72 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
+let decorationType: vscode.TextEditorDecorationType;
+let allHighlights: vscode.Range[] = [];
+let highlightingActive = false;
+
 export function activate(context: vscode.ExtensionContext) {
+  vscode.window.showInformationMessage('Highlight extension ready.');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "highlight-code" is now active!');
+  decorationType = vscode.window.createTextEditorDecorationType({
+    backgroundColor: 'rgba(255, 0, 0, 0.4)',
+    border: '1px solid darkred',
+    borderRadius: '3px'
+  });
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('highlight-code.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from highlight-code!');
-	});
+  // Command: Start highlighting mode
+  const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
+    highlightingActive = true;
+    const editor = vscode.window.activeTextEditor;
 
-	context.subscriptions.push(disposable);
+    if (editor) {
+      const lastLine = editor.document.lineAt(editor.document.lineCount - 1);
+      if (!lastLine.isEmptyOrWhitespace) {
+        await editor.edit(editBuilder => {
+          editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
+        });
+        vscode.window.showInformationMessage('Blank line added at end of file.');
+      }
+    }
+
+    vscode.window.showInformationMessage('Highlighting mode started. Select text to highlight.');
+  });
+
+  // Command: Clear all highlights
+  const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && decorationType) {
+      allHighlights = [];
+      editor.setDecorations(decorationType, []);
+      highlightingActive = false;
+      vscode.window.showInformationMessage('Highlights cleared and highlighting stopped.');
+    }
+  });
+
+  // Selection listener
+  const selectionListener = vscode.window.onDidChangeTextEditorSelection((e) => {
+    if (!highlightingActive) return;
+
+    const editor = e.textEditor;
+    const selections = e.selections.filter(sel => !sel.isEmpty);
+
+    const frozenRanges = selections.map(sel => {
+      const start = new vscode.Position(sel.start.line, sel.start.character);
+      const end = new vscode.Position(sel.end.line, sel.end.character);
+      return new vscode.Range(start, end);
+    });
+
+    if (frozenRanges.length > 0) {
+      allHighlights.push(...frozenRanges);
+      editor.setDecorations(decorationType, allHighlights);
+
+      const selectedText = editor.document.getText(selections[0]);
+      vscode.window.showInformationMessage(`Highlighted: ${selectedText}`);
+    }
+  });
+
+  context.subscriptions.push(startCommand, clearCommand, selectionListener);
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+  if (decorationType) decorationType.dispose();
+}
