@@ -1,71 +1,90 @@
-# highlight-code README
-
-This is the README for your extension "highlight-code". After writing up a brief description, we recommend including the following sections.
-
-## Features
-
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
-
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+Here's a complete and polished `README.md` for your VSCode extension:
 
 ---
 
-## Following extension guidelines
+## 📌 highlight-code — A VSCode Extension
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+**highlight-code** is a lightweight Visual Studio Code extension that allows you to highlight selected text in the editor with a red background. You can persist multiple highlights and clear them all with a single command.
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+---
 
-## Working with Markdown
+## ✨ Features
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+* ✅ Highlight any selected text in red
+* ✅ Keep multiple highlights active across the document
+* ✅ Clear all highlights via command
+* ✅ Auto-adds a blank line at the end of the file (if missing)
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+---
 
-## For more information
+## 🚀 How to Use
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+1. Open the **Command Palette** (`Ctrl+Shift+P`)
+2. Run **`Highlight Selected Text`**
+3. Start selecting text — it will be highlighted in **red**
+4. Run **`Clear Highlights`** to remove all highlights
 
-**Enjoy!**
+> 💡 If the last line of the file is not blank, the extension will automatically insert a new line.
+
+---
+
+## 🧪 Commands
+
+| Command                   | Description                                  |
+| ------------------------- | -------------------------------------------- |
+| `Highlight Selected Text` | Activates highlight mode for selections      |
+| `Clear Highlights`        | Clears all highlights and stops highlighting |
+
+---
+
+## ⚙️ Extension Settings
+
+No custom settings yet — plug and play!
+
+---
+
+## 💻 Development
+
+Clone the repo and run:
+
+```bash
+npm install
+npm run compile
+```
+
+Press `F5` to launch a new **Extension Development Host**.
+
+---
+
+## 📂 File Structure (Important Files)
+
+```
+├── package.json          # Metadata and command registrations
+├── src/
+│   └── extension.ts      # Extension logic
+├── out/                  # Compiled output
+└── README.md             # This file
+```
+
+---
+
+## 📣 Roadmap Ideas
+
+* [ ] Customizable highlight color
+* [ ] Toggle mode (on/off via single command)
+* [ ] Word-based highlighting
+* [ ] Settings support via `settings.json`
+
+---
+
+## 🙌 Author
+
+Made with ❤️ by \[Your Name]
+
+---
+
+Let me know if you want to:
+
+* Change project name/description
+* Add demo GIF or screenshots
+* Prepare for VSCode Marketplace publishing (`vsce`)
