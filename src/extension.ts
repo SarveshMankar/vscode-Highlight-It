@@ -10,7 +10,7 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage('Highlight extension ready.');
 
   decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: 'rgba(255, 0, 0, 0.4)',
+    backgroundColor: 'rgba(255, 0, 0, 0.88)',
     border: '1px solid darkred',
     borderRadius: '3px'
   });
@@ -70,10 +70,16 @@ export function activate(context: vscode.ExtensionContext) {
 
         for (const existing of highlights) {
           const intersection = existing.intersection(newRange);
-          if (!intersection) {
-            updated.push(existing); // keep as is
-          } else {
-            // Keep non-overlapping parts of the existing range
+
+          // 1. If existing is fully inside new selection → KEEP it
+          if (
+            newRange.contains(existing.start) &&
+            newRange.contains(existing.end)
+          ) {
+            updated.push(existing);
+          }
+          // 2. If partially overlapping → split and remove overlap
+          else if (intersection) {
             if (existing.start.isBefore(intersection.start)) {
               updated.push(new vscode.Range(existing.start, intersection.start));
             }
@@ -81,11 +87,15 @@ export function activate(context: vscode.ExtensionContext) {
               updated.push(new vscode.Range(intersection.end, existing.end));
             }
           }
+          // 3. If no intersection → KEEP it
+          else {
+            updated.push(existing);
+          }
         }
 
-        // If no existing highlight was intersected, add this as a new one
-        const intersected = highlights.some(h => h.intersection(newRange));
-        if (!intersected) {
+        // Add the new selection (if not fully covered already)
+        const alreadyCovered = highlights.some(h => h.contains(newRange));
+        if (!alreadyCovered) {
           updated.push(newRange);
         }
 
