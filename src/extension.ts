@@ -10,11 +10,12 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage('Highlight extension ready.');
 
   decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: 'rgba(255, 0, 0, 0.88)',
+    backgroundColor: 'rgba(255, 0, 0, 0.4)',
     border: '1px solid darkred',
     borderRadius: '3px'
   });
 
+  // Start highlighting mode
   const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
     highlightingActive = true;
     const editor = vscode.window.activeTextEditor;
@@ -36,17 +37,32 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('Highlighting mode started. Select text to toggle highlights.');
   });
 
+  // Clears current file's highlights only
   const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
     const editor = vscode.window.activeTextEditor;
     if (editor && decorationType) {
       const uri = editor.document.uri.toString();
       fileHighlights.set(uri, []);
       editor.setDecorations(decorationType, []);
-      highlightingActive = false;
-      vscode.window.showInformationMessage('Highlights cleared.');
+      vscode.window.showInformationMessage('Cleared highlights for current file (still in highlight mode).');
     }
   });
 
+  // Stops all highlighting and clears all files
+  const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', () => {
+    highlightingActive = false;
+    fileHighlights.clear();
+
+    if (decorationType) {
+      vscode.window.visibleTextEditors.forEach(editor => {
+        editor.setDecorations(decorationType!, []);
+      });
+    }
+
+    vscode.window.showInformationMessage('Stopped highlight mode and cleared all highlights.');
+  });
+
+  // Selection logic
   const selectionListener = vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!highlightingActive) return;
 
@@ -71,14 +87,11 @@ export function activate(context: vscode.ExtensionContext) {
         for (const existing of highlights) {
           const intersection = existing.intersection(newRange);
 
-          // 1. If existing is fully inside new selection → KEEP it
-          if (
-            newRange.contains(existing.start) &&
-            newRange.contains(existing.end)
-          ) {
+          // Keep if existing is fully inside the new one
+          if (newRange.contains(existing.start) && newRange.contains(existing.end)) {
             updated.push(existing);
           }
-          // 2. If partially overlapping → split and remove overlap
+          // Remove overlapping part only
           else if (intersection) {
             if (existing.start.isBefore(intersection.start)) {
               updated.push(new vscode.Range(existing.start, intersection.start));
@@ -87,13 +100,12 @@ export function activate(context: vscode.ExtensionContext) {
               updated.push(new vscode.Range(intersection.end, existing.end));
             }
           }
-          // 3. If no intersection → KEEP it
+          // No overlap → keep
           else {
             updated.push(existing);
           }
         }
 
-        // Add the new selection (if not fully covered already)
         const alreadyCovered = highlights.some(h => h.contains(newRange));
         if (!alreadyCovered) {
           updated.push(newRange);
@@ -109,6 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
     }, 300);
   });
 
+  // Reapply highlights on editor switch
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (editor && decorationType) {
       const uri = editor.document.uri.toString();
@@ -117,7 +130,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(startCommand, clearCommand, selectionListener, editorChangeListener);
+  context.subscriptions.push(startCommand, clearCommand, stopCommand, selectionListener, editorChangeListener);
 }
 
 export function deactivate() {

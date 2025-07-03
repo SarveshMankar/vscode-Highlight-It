@@ -22,7 +22,11 @@
       },
       {
         "command": "extension.clearHighlights",
-        "title": "Clear Highlights"
+        "title": "Clear Highlights (Current File)"
+      },
+      {
+        "command": "extension.stopHighlighting",
+        "title": "Stop Highlighting (All Files)"
       }
     ]
   },
