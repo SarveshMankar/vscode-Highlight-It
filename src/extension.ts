@@ -37,7 +37,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('Highlighting mode started. Select text to toggle highlights.');
   });
 
-  // Clears current file's highlights only
+  // Clear highlights for current file only
   const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
     const editor = vscode.window.activeTextEditor;
     if (editor && decorationType) {
@@ -48,21 +48,19 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Stops all highlighting and clears all files
+  // Stop highlight mode and clear all highlights
   const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', () => {
     highlightingActive = false;
     fileHighlights.clear();
 
-    if (decorationType) {
-      vscode.window.visibleTextEditors.forEach(editor => {
-        editor.setDecorations(decorationType!, []);
-      });
-    }
+    vscode.window.visibleTextEditors.forEach(editor => {
+      editor.setDecorations(decorationType, []);
+    });
 
     vscode.window.showInformationMessage('Stopped highlight mode and cleared all highlights.');
   });
 
-  // Selection logic
+  // Toggle logic on selection
   const selectionListener = vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!highlightingActive) return;
 
@@ -82,46 +80,50 @@ export function activate(context: vscode.ExtensionContext) {
 
       selections.forEach(sel => {
         const newRange = new vscode.Range(sel.start, sel.end);
-        let updated: vscode.Range[] = [];
+        const result: vscode.Range[] = [];
+
+        let isExactMatch = false;
 
         for (const existing of highlights) {
+          if (existing.isEqual(newRange)) {
+            // Exact match → remove
+            isExactMatch = true;
+            continue;
+          }
+
           const intersection = existing.intersection(newRange);
 
-          // Keep if existing is fully inside the new one
-          if (newRange.contains(existing.start) && newRange.contains(existing.end)) {
-            updated.push(existing);
-          }
-          // Remove overlapping part only
-          else if (intersection) {
+          if (!intersection) {
+            result.push(existing); // No overlap → keep as is
+          } else {
+            // Partial overlap → remove overlapping part
             if (existing.start.isBefore(intersection.start)) {
-              updated.push(new vscode.Range(existing.start, intersection.start));
+              result.push(new vscode.Range(existing.start, intersection.start));
             }
             if (existing.end.isAfter(intersection.end)) {
-              updated.push(new vscode.Range(intersection.end, existing.end));
+              result.push(new vscode.Range(intersection.end, existing.end));
             }
           }
-          // No overlap → keep
-          else {
-            updated.push(existing);
+        }
+
+        if (!isExactMatch) {
+          // Only add newRange if it's not already fully inside any existing highlight
+          const alreadyFullyCovered = highlights.some(h => h.contains(newRange));
+          if (!alreadyFullyCovered) {
+            result.push(newRange);
           }
         }
 
-        const alreadyCovered = highlights.some(h => h.contains(newRange));
-        if (!alreadyCovered) {
-          updated.push(newRange);
-        }
-
-        highlights = updated;
+        highlights = result;
       });
 
       fileHighlights.set(uri, highlights);
       editor.setDecorations(decorationType, highlights);
-
       vscode.window.showInformationMessage('Toggled highlight(s).');
     }, 300);
   });
 
-  // Reapply highlights on editor switch
+  // Reapply highlights when switching editors
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (editor && decorationType) {
       const uri = editor.document.uri.toString();
@@ -130,7 +132,13 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(startCommand, clearCommand, stopCommand, selectionListener, editorChangeListener);
+  context.subscriptions.push(
+    startCommand,
+    clearCommand,
+    stopCommand,
+    selectionListener,
+    editorChangeListener
+  );
 }
 
 export function deactivate() {
