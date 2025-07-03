@@ -75,7 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
     lastSelectionKey = selectionKey;
 
-    selectionStableTimer = setTimeout(() => {
+    selectionStableTimer = setTimeout(async () => {
       let highlights = fileHighlights.get(uri) || [];
 
       selections.forEach(sel => {
@@ -86,7 +86,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         for (const existing of highlights) {
           if (existing.isEqual(newRange)) {
-            // Exact match → remove
+            // Exact match -> remove
             isExactMatch = true;
             continue;
           }
@@ -94,9 +94,9 @@ export function activate(context: vscode.ExtensionContext) {
           const intersection = existing.intersection(newRange);
 
           if (!intersection) {
-            result.push(existing); // No overlap → keep as is
+            result.push(existing); // No overlap -> keep as is
           } else {
-            // Partial overlap → remove overlapping part
+            // Partial overlap -> remove overlapping part
             if (existing.start.isBefore(intersection.start)) {
               result.push(new vscode.Range(existing.start, intersection.start));
             }
@@ -118,8 +118,17 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       fileHighlights.set(uri, highlights);
+
+      // Ensure file ends with a blank line
+      const lastLine = editor.document.lineAt(editor.document.lineCount - 1);
+      if (!lastLine.isEmptyOrWhitespace) {
+        await editor.edit(editBuilder => {
+          editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
+        });
+        vscode.window.showInformationMessage('Blank line added at end of file.');
+      }
+
       editor.setDecorations(decorationType, highlights);
-      vscode.window.showInformationMessage('Toggled highlight(s).');
     }, 300);
   });
 
