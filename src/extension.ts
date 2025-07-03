@@ -15,7 +15,6 @@ export function activate(context: vscode.ExtensionContext) {
     borderRadius: '3px'
   });
 
-  // Start highlighting mode
   const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
     highlightingActive = true;
     const editor = vscode.window.activeTextEditor;
@@ -29,16 +28,14 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('Blank line added at end of file.');
       }
 
-      // Reapply highlights for this file
       const uri = editor.document.uri.toString();
       const ranges = fileHighlights.get(uri) || [];
       editor.setDecorations(decorationType, ranges);
     }
 
-    vscode.window.showInformationMessage('Highlighting mode started. Select text to highlight.');
+    vscode.window.showInformationMessage('Highlighting mode started. Select text to toggle highlights.');
   });
 
-  // Clear highlights for current file
   const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
     const editor = vscode.window.activeTextEditor;
     if (editor && decorationType) {
@@ -50,7 +47,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Add highlights after mouse/touchpad release (debounced)
   const selectionListener = vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!highlightingActive) return;
 
@@ -60,32 +56,49 @@ export function activate(context: vscode.ExtensionContext) {
     if (selections.length === 0) return;
 
     const selectionKey = selections.map(sel => `${sel.start.line},${sel.start.character}-${sel.end.line},${sel.end.character}`).join(';');
-
     if (selectionKey !== lastSelectionKey && selectionStableTimer) {
       clearTimeout(selectionStableTimer);
     }
-
     lastSelectionKey = selectionKey;
 
     selectionStableTimer = setTimeout(() => {
-      const frozenRanges = selections.map(sel => {
-        const start = new vscode.Position(sel.start.line, sel.start.character);
-        const end = new vscode.Position(sel.end.line, sel.end.character);
-        return new vscode.Range(start, end);
+      let highlights = fileHighlights.get(uri) || [];
+
+      selections.forEach(sel => {
+        const newRange = new vscode.Range(sel.start, sel.end);
+        let updated: vscode.Range[] = [];
+
+        for (const existing of highlights) {
+          const intersection = existing.intersection(newRange);
+          if (!intersection) {
+            updated.push(existing); // keep as is
+          } else {
+            // Keep non-overlapping parts of the existing range
+            if (existing.start.isBefore(intersection.start)) {
+              updated.push(new vscode.Range(existing.start, intersection.start));
+            }
+            if (existing.end.isAfter(intersection.end)) {
+              updated.push(new vscode.Range(intersection.end, existing.end));
+            }
+          }
+        }
+
+        // If no existing highlight was intersected, add this as a new one
+        const intersected = highlights.some(h => h.intersection(newRange));
+        if (!intersected) {
+          updated.push(newRange);
+        }
+
+        highlights = updated;
       });
 
-      // Store per-file highlights
-      const prev = fileHighlights.get(uri) || [];
-      const updated = [...prev, ...frozenRanges];
-      fileHighlights.set(uri, updated);
-      editor.setDecorations(decorationType, updated);
+      fileHighlights.set(uri, highlights);
+      editor.setDecorations(decorationType, highlights);
 
-      const selectedText = editor.document.getText(selections[0]);
-      vscode.window.showInformationMessage(`Highlighted: ${selectedText}`);
+      vscode.window.showInformationMessage('Toggled highlight(s).');
     }, 300);
   });
 
-  // Reapply highlights when switching editors
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (editor && decorationType) {
       const uri = editor.document.uri.toString();
