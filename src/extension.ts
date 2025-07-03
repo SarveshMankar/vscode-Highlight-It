@@ -1,13 +1,13 @@
 import * as vscode from 'vscode';
 
 let decorationType: vscode.TextEditorDecorationType;
-let allHighlights: vscode.Range[] = [];
+let fileHighlights: Map<string, vscode.Range[]> = new Map();
 let highlightingActive = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
 let lastSelectionKey = '';
 
 export function activate(context: vscode.ExtensionContext) {
-  // vscode.window.showInformationMessage('Highlight extension ready.');
+  vscode.window.showInformationMessage('Highlight extension ready.');
 
   decorationType = vscode.window.createTextEditorDecorationType({
     backgroundColor: 'rgba(255, 0, 0, 0.4)',
@@ -15,7 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
     borderRadius: '3px'
   });
 
-  // Command: Start highlighting mode
+  // Start highlighting mode
   const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
     highlightingActive = true;
     const editor = vscode.window.activeTextEditor;
@@ -26,42 +26,47 @@ export function activate(context: vscode.ExtensionContext) {
         await editor.edit(editBuilder => {
           editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
         });
-        // vscode.window.showInformationMessage('Blank line added at end of file.');
+        vscode.window.showInformationMessage('Blank line added at end of file.');
       }
+
+      // Reapply highlights for this file
+      const uri = editor.document.uri.toString();
+      const ranges = fileHighlights.get(uri) || [];
+      editor.setDecorations(decorationType, ranges);
     }
 
     vscode.window.showInformationMessage('Highlighting mode started. Select text to highlight.');
   });
 
-  // Command: Clear highlights
+  // Clear highlights for current file
   const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
     const editor = vscode.window.activeTextEditor;
     if (editor && decorationType) {
-      allHighlights = [];
+      const uri = editor.document.uri.toString();
+      fileHighlights.set(uri, []);
       editor.setDecorations(decorationType, []);
       highlightingActive = false;
       vscode.window.showInformationMessage('Highlights cleared.');
     }
   });
 
-  // Selection change — highlight only after it's stable for 300ms
+  // Add highlights after mouse/touchpad release (debounced)
   const selectionListener = vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!highlightingActive) return;
 
     const editor = e.textEditor;
+    const uri = editor.document.uri.toString();
     const selections = e.selections.filter(sel => !sel.isEmpty);
     if (selections.length === 0) return;
 
     const selectionKey = selections.map(sel => `${sel.start.line},${sel.start.character}-${sel.end.line},${sel.end.character}`).join(';');
 
-    // If selection keeps changing — cancel previous timer
     if (selectionKey !== lastSelectionKey && selectionStableTimer) {
       clearTimeout(selectionStableTimer);
     }
 
     lastSelectionKey = selectionKey;
 
-    // Wait a bit before committing the highlight
     selectionStableTimer = setTimeout(() => {
       const frozenRanges = selections.map(sel => {
         const start = new vscode.Position(sel.start.line, sel.start.character);
@@ -69,18 +74,23 @@ export function activate(context: vscode.ExtensionContext) {
         return new vscode.Range(start, end);
       });
 
-      allHighlights.push(...frozenRanges);
-      editor.setDecorations(decorationType, allHighlights);
+      // Store per-file highlights
+      const prev = fileHighlights.get(uri) || [];
+      const updated = [...prev, ...frozenRanges];
+      fileHighlights.set(uri, updated);
+      editor.setDecorations(decorationType, updated);
 
       const selectedText = editor.document.getText(selections[0]);
-      // vscode.window.showInformationMessage(`Highlighted: ${selectedText}`);
+      vscode.window.showInformationMessage(`Highlighted: ${selectedText}`);
     }, 300);
   });
 
-  // Reapply highlights on file switch
+  // Reapply highlights when switching editors
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
-    if (editor && decorationType && allHighlights.length > 0) {
-      editor.setDecorations(decorationType, allHighlights);
+    if (editor && decorationType) {
+      const uri = editor.document.uri.toString();
+      const ranges = fileHighlights.get(uri) || [];
+      editor.setDecorations(decorationType, ranges);
     }
   });
 
