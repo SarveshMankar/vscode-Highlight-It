@@ -18,15 +18,15 @@
     "commands": [
       {
         "command": "extension.highlightSelection",
-        "title": "Highlight Selected Text"
+        "title": "Highlight: Start Highlighting"
       },
       {
         "command": "extension.clearHighlights",
-        "title": "Clear Highlights (Current File)"
+        "title": "Highlight: Clear Highlights (Current File)"
       },
       {
         "command": "extension.stopHighlighting",
-        "title": "Stop Highlighting (All Files)"
+        "title": "Highlight: Stop Highlighting (All Files)"
       },
       {
         "command": "extension.setHighlightColor",
