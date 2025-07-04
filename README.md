@@ -75,7 +75,7 @@ Ensure the following commands are defined in your `package.json`:
 
 Suggestions for new color options, persistent highlight storage, or UI enhancements are welcome!
 
-⚠️ This extension is licensed under the MIT License, but commercial use is **not permitted** without explicit written permission from the author.
+⚠️ This extension is licensed under the GNU GPL v3 License, but commercial use is **not permitted** without explicit written permission from the author.
 
 
 ## 👤 Author
