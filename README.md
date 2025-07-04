@@ -1,4 +1,4 @@
-# 🖍️ VS Code Highlight Extension
+# 🖍️ Highlight-It: VS Code Highlight Extension
 
 This extension allows you to highlight text in your editor using multiple colors, helping you mark important code areas, annotate sections, or visually separate logic blocks.
 
