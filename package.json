@@ -1,8 +1,13 @@
 {
-  "name": "highlight-code",
-  "displayName": "highlight-code",
+  "name": "code-highlighter",
+  "displayName": "Code Highlighter",
+  "publisher": "SarveshMankar",
   "description": "Highlights the Code in the Editor",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SarveshMankar/vscode-Code-Highlighter"
+  },
   "engines": {
     "vscode": "^1.101.0"
   },
