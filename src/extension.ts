@@ -31,7 +31,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   // Command to start highlight mode
-  const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
+  const startCommand = vscode.commands.registerCommand('extension.startHighlighting', async () => {
     highlightingActive = true;
     const editor = vscode.window.activeTextEditor;
 
@@ -144,7 +144,7 @@ export function activate(context: vscode.ExtensionContext) {
           if (!intersection) {
             result.push(existing);
           } else {
-            // Partial overlap → trim existing range
+            // Partial overlap -> trim existing range
             if (existing.range.start.isBefore(intersection.start)) {
               result.push({ color: existing.color, range: new vscode.Range(existing.range.start, intersection.start) });
             }

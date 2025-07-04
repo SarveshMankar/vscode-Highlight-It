@@ -10,7 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:extension.highlightSelection",
+    "onCommand:extension.startHighlighting",
     "onCommand:extension.setHighlightColor",
     "onCommand:extension.clearHighlights",
     "onCommand:extension.stopHighlighting"
@@ -19,7 +19,7 @@
   "contributes": {
     "commands": [
       {
-        "command": "extension.highlightSelection",
+        "command": "extension.startHighlighting",
         "title": "Highlight: Start Highlighting"
       },
       {
