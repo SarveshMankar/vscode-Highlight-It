@@ -15,8 +15,6 @@ let selectionStableTimer: NodeJS.Timeout | null = null;
 let lastSelectionKey = '';
 
 export function activate(context: vscode.ExtensionContext) {
-  vscode.window.showInformationMessage('Highlight extension ready.');
-
   // Returns or creates a decoration type for a given color
   function getDecorationType(color: string): vscode.TextEditorDecorationType {
     if (!decorationStyles.has(color)) {
@@ -42,7 +40,7 @@ export function activate(context: vscode.ExtensionContext) {
         await editor.edit(editBuilder => {
           editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
         });
-        vscode.window.showInformationMessage('Blank line added at end of file.');
+        // vscode.window.showInformationMessage('Blank line added at end of file.');
       }
 
       const uri = editor.document.uri.toString();
@@ -63,18 +61,18 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to set the highlight color
   const setColorCommand = vscode.commands.registerCommand('extension.setHighlightColor', async () => {
     const picked = await vscode.window.showQuickPick(
-      ['red', 'yellow', 'green', 'blue', 'pink', 'orange'],
+      ['Red', 'Yellow', 'Green', 'Blue', 'Pink', 'Orange'],
       { placeHolder: 'Pick a highlight color' }
     );
 
     if (picked) {
       const colorMap: any = {
-        red: 'rgba(255, 0, 0, 0.7)',
-        yellow: 'rgba(255, 255, 0, 0.7)',
-        green: 'rgba(0, 255, 0, 0.7)',
-        blue: 'rgba(0, 0, 255, 0.7)',
-        pink: 'rgba(255, 105, 180, 0.7)',
-        orange: 'rgba(255, 165, 0, 0.7)'
+        Red: 'rgba(255, 0, 0, 0.7)',
+        Yellow: 'rgba(255, 255, 0, 0.7)',
+        Green: 'rgba(0, 255, 0, 0.7)',
+        Blue: 'rgba(0, 0, 255, 0.7)',
+        Pink: 'rgba(255, 105, 180, 0.7)',
+        Orange: 'rgba(255, 165, 0, 0.7)'
       };
 
       currentColor = colorMap[picked];
