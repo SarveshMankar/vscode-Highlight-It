@@ -11,7 +11,9 @@
   ],
   "activationEvents": [
     "onCommand:extension.highlightSelection",
-    "onCommand:extension.clearHighlights"
+    "onCommand:extension.setHighlightColor",
+    "onCommand:extension.clearHighlights",
+    "onCommand:extension.stopHighlighting"
   ],
   "main": "./out/extension.js",
   "contributes": {
