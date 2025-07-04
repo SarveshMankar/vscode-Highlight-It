@@ -82,4 +82,4 @@ Suggestions for new color options, persistent highlight storage, or UI enhanceme
 
 Created and maintained by **Sarvesh Mankar**  
 [GitHub](https://github.com/SarveshMankar)
-[LinkedIn](https://www.linkedin.com/in/sarveshmankar/)
+[LinkedIn](https://www.linkedin.com/in/sarvesh-mankar/)
