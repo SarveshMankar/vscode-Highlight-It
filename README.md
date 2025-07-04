@@ -1,90 +1,82 @@
-Here's a complete and polished `README.md` for your VSCode extension:
+# 🖍️ VS Code Highlight Extension
 
----
-
-## 📌 highlight-code — A VSCode Extension
-
-**highlight-code** is a lightweight Visual Studio Code extension that allows you to highlight selected text in the editor with a red background. You can persist multiple highlights and clear them all with a single command.
+This extension allows you to highlight text in your editor using multiple colors, helping you mark important code areas, annotate sections, or visually separate logic blocks.
 
 ---
 
 ## ✨ Features
 
-* ✅ Highlight any selected text in red
-* ✅ Keep multiple highlights active across the document
-* ✅ Clear all highlights via command
-* ✅ Auto-adds a blank line at the end of the file (if missing)
+- Highlight selected text using customizable colors.
+- Choose from Red, Yellow, Green, Blue, Pink, and Orange.
+- Toggle highlights on/off by selecting the same region.
+- Multiple colors can exist simultaneously in a file.
+- Highlights persist per file during the session.
+- Automatically adds a blank line if needed for proper display.
+- Clear highlights for the current file or stop highlighting completely.
 
 ---
 
-## 🚀 How to Use
+## 📘 Usage Instructions
 
-1. Open the **Command Palette** (`Ctrl+Shift+P`)
-2. Run **`Highlight Selected Text`**
-3. Start selecting text — it will be highlighted in **red**
-4. Run **`Clear Highlights`** to remove all highlights
+1. Open the Command Palette: `Ctrl + Shift + P`
+2. Run one of the following commands:
 
-> 💡 If the last line of the file is not blank, the extension will automatically insert a new line.
-
----
-
-## 🧪 Commands
-
-| Command                   | Description                                  |
-| ------------------------- | -------------------------------------------- |
-| `Highlight Selected Text` | Activates highlight mode for selections      |
-| `Clear Highlights`        | Clears all highlights and stops highlighting |
+| Command | Description |
+|--------|-------------|
+| `Highlight: Start Highlighting` | Enables highlight mode. Selected text will be highlighted. |
+| `Highlight: Set Highlight Color` | Pick a color for future highlights. |
+| `Highlight: Clear Highlights` | Clears all highlights for the current file. |
+| `Highlight: Stop Highlighting` | Disables highlighting mode and clears all highlights from all files. |
 
 ---
 
-## ⚙️ Extension Settings
+## 🧑‍💻 Developer Guide
 
-No custom settings yet — plug and play!
+### Commands
 
----
+Ensure the following commands are defined in your `package.json`:
 
-## 💻 Development
-
-Clone the repo and run:
-
-```bash
-npm install
-npm run compile
+```json
+{
+  "contributes": {
+    "commands": [
+      {
+        "command": "extension.highlightSelection",
+        "title": "Highlight: Start Highlighting"
+      },
+      {
+        "command": "extension.setHighlightColor",
+        "title": "Highlight: Set Highlight Color"
+      },
+      {
+        "command": "extension.clearHighlights",
+        "title": "Highlight: Clear Highlights"
+      },
+      {
+        "command": "extension.stopHighlighting",
+        "title": "Highlight: Stop Highlighting"
+      }
+    ]
+  },
+  "activationEvents": [
+    "onCommand:extension.highlightSelection",
+    "onCommand:extension.setHighlightColor",
+    "onCommand:extension.clearHighlights",
+    "onCommand:extension.stopHighlighting"
+  ]
+}
 ```
 
-Press `F5` to launch a new **Extension Development Host**.
+### Contributing
 
----
+1. Fork this repository 
+2. Create a new branch for your feature or bugfix
+3. Submit a pull request with a clear explanation
 
-## 📂 File Structure (Important Files)
+Suggestions for new color options, persistent highlight storage, or UI enhancements are welcome!
 
-```
-├── package.json          # Metadata and command registrations
-├── src/
-│   └── extension.ts      # Extension logic
-├── out/                  # Compiled output
-└── README.md             # This file
-```
+## 👤 Author
 
----
-
-## 📣 Roadmap Ideas
-
-* [ ] Customizable highlight color
-* [ ] Toggle mode (on/off via single command)
-* [ ] Word-based highlighting
-* [ ] Settings support via `settings.json`
-
----
-
-## 🙌 Author
-
-Made with ❤️ by Sarvesh Mankar
-
----
-
-Let me know if you want to:
-
-* Change project name/description
-* Add demo GIF or screenshots
-* Prepare for VSCode Marketplace publishing (`vsce`)
+Created and maintained by **Sarvesh Mankar**  
+[GitHub](https://github.com/SarveshMankar)
+[LinkedIn](https://www.linkedin.com/in/sarveshmankar/)
