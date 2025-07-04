@@ -1,19 +1,29 @@
 import * as vscode from 'vscode';
 
 let decorationType: vscode.TextEditorDecorationType;
+let currentColor = 'rgba(255, 0, 0, 0.7)'; // Default highlight color
 let fileHighlights: Map<string, vscode.Range[]> = new Map();
 let highlightingActive = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
 let lastSelectionKey = '';
+/**
+ * This extension allows users to highlight text selections in VS Code.
+ * It supports toggling highlights, clearing highlights for the current file,
+ * and stopping the highlight mode entirely.
+ */
 
 export function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage('Highlight extension ready.');
 
-  decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: 'rgba(255, 0, 0, 0.4)',
-    border: '1px solid darkred',
-    borderRadius: '3px'
-  });
+  function createDecorationType(color: string): vscode.TextEditorDecorationType {
+    return vscode.window.createTextEditorDecorationType({
+      backgroundColor: color,
+      border: '1px solid darkred',
+      borderRadius: '3px'
+    });
+  }
+
+  decorationType = createDecorationType(currentColor);
 
   // Start highlighting mode
   const startCommand = vscode.commands.registerCommand('extension.highlightSelection', async () => {
@@ -35,6 +45,36 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     vscode.window.showInformationMessage('Highlighting mode started. Select text to toggle highlights.');
+  });
+
+  const setColorCommand = vscode.commands.registerCommand('extension.setHighlightColor', async () => {
+    const picked = await vscode.window.showQuickPick(
+      ['red', 'yellow', 'green', 'blue', 'pink', 'orange'],
+      { placeHolder: 'Pick a highlight color' }
+    );
+
+    if (picked) {
+      const colorMap: any = {
+        red: 'rgba(255, 0, 0, 0.7)',
+        yellow: 'rgba(255, 255, 0, 0.7)',
+        green: 'rgba(0, 255, 0, 0.7)',
+        blue: 'rgba(0, 0, 255, 0.7)',
+        pink: 'rgba(255, 105, 180, 0.7)',
+        orange: 'rgba(255, 165, 0, 0.7)'
+      };
+
+      currentColor = colorMap[picked];
+      decorationType.dispose();
+      decorationType = createDecorationType(currentColor);
+      vscode.window.showInformationMessage(`Highlight color set to ${picked}`);
+
+      // Re-apply highlights for all visible editors
+      vscode.window.visibleTextEditors.forEach(editor => {
+        const uri = editor.document.uri.toString();
+        const ranges = fileHighlights.get(uri) || [];
+        editor.setDecorations(decorationType, ranges);
+      });
+    }
   });
 
   // Clear highlights for current file only
@@ -143,6 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     startCommand,
+    setColorCommand,
     clearCommand,
     stopCommand,
     selectionListener,

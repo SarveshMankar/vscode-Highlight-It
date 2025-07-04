@@ -27,6 +27,17 @@
       {
         "command": "extension.stopHighlighting",
         "title": "Stop Highlighting (All Files)"
+      },
+      {
+        "command": "extension.setHighlightColor",
+        "title": "Highlight: Set Highlight Color"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "extension.setHighlightColor",
+        "key": "ctrl+alt+c",
+        "when": "editorTextFocus"
       }
     ]
   },
