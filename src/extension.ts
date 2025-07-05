@@ -34,17 +34,27 @@ export function activate(context: vscode.ExtensionContext) {
     const editor = vscode.window.activeTextEditor;
 
     if (editor) {
-      // Add blank line at end if last line isn't blank
-      const lastLine = editor.document.lineAt(editor.document.lineCount - 1);
-      if (!lastLine.isEmptyOrWhitespace) {
-        await editor.edit(editBuilder => {
-          editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
-        });
-        // vscode.window.showInformationMessage('Blank line added at end of file.');
-      }
-
       const uri = editor.document.uri.toString();
       const highlights = fileHighlights.get(uri) || [];
+
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const touchesEOF = highlights.some(h =>
+        h.range.end.line === lastLineIndex &&
+        h.range.end.character === lastLine.text.length
+      );
+
+
+      // Add blank line at end if a highlight goes till the end and last line isn't blank
+      if (touchesEOF) {
+        const lastLine = editor.document.lineAt(lastLineIndex);
+        if (!lastLine.isEmptyOrWhitespace) {
+          await editor.edit(editBuilder => {
+            editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
+          });
+          // vscode.window.showInformationMessage('Blank line added at end of file.');
+        }
+      }
 
       // Apply decorations grouped by color
       const colorsInUse = new Set(highlights.map(h => h.color));
@@ -164,13 +174,22 @@ export function activate(context: vscode.ExtensionContext) {
 
       fileHighlights.set(uri, highlights);
 
-      // Add blank line if needed
-      const lastLine = editor.document.lineAt(editor.document.lineCount - 1);
-      if (!lastLine.isEmptyOrWhitespace) {
-        await editor.edit(editBuilder => {
-          editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
-        });
-        vscode.window.showInformationMessage('Blank line added at end of file.');
+      // Add blank line only if a highlight goes till end of file
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const touchesEOF = highlights.some(h =>
+        h.range.end.line === lastLineIndex &&
+        h.range.end.character === lastLine.text.length
+      );
+
+      if (touchesEOF) {
+        const lastLine = editor.document.lineAt(lastLineIndex);
+        if (!lastLine.isEmptyOrWhitespace) {
+          await editor.edit(editBuilder => {
+            editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
+          });
+          vscode.window.showInformationMessage('Blank line added at end of file.');
+        }
       }
 
       const colorsInUse = new Set(highlights.map(h => h.color));
