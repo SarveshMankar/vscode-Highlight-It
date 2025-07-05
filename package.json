@@ -3,7 +3,7 @@
   "displayName": "Highlight-It",
   "publisher": "SarveshMankar",
   "description": "Highlights the Code in the Editor",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "icon": "images/highlight-it.png",
   "repository": {
     "type": "git",
