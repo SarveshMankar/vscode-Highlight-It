@@ -9,6 +9,9 @@ let decorationStyles: Map<string, vscode.TextEditorDecorationType> = new Map();
 // Map to store highlights by file URI, each with its associated color and range
 let fileHighlights: Map<string, { color: string; range: vscode.Range }[]> = new Map();
 
+// Map to track if a blank line was added by the extension for each file
+let blankLineAddedByExtension: Map<string, boolean> = new Map();
+
 // Toggle state and timers for selection stability
 let highlightingActive = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
@@ -52,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
           await editor.edit(editBuilder => {
             editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
           });
+          blankLineAddedByExtension.set(uri, true);
           // vscode.window.showInformationMessage('Blank line added at end of file.');
         }
       }
@@ -92,24 +96,58 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Command to clear highlights for the current file
-  const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', () => {
+  const clearCommand = vscode.commands.registerCommand('extension.clearHighlights', async () => {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       const uri = editor.document.uri.toString();
       fileHighlights.set(uri, []);
       decorationStyles.forEach(style => editor.setDecorations(style, []));
+
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const wasAddedByUs = blankLineAddedByExtension.get(uri);
+
+      if (wasAddedByUs && lastLine.isEmptyOrWhitespace && lastLineIndex > 0) {
+        await editor.edit(editBuilder => {
+          const range = new vscode.Range(
+            new vscode.Position(lastLineIndex - 1, editor.document.lineAt(lastLineIndex - 1).text.length),
+            new vscode.Position(lastLineIndex, lastLine.text.length)
+          );
+          editBuilder.delete(range);
+        });
+        await editor.document.save();
+        blankLineAddedByExtension.set(uri, false);
+      }
+
       vscode.window.showInformationMessage('Cleared highlights for current file (still in highlight mode).');
     }
   });
 
   // Command to stop highlight mode and clear all highlights across files
-  const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', () => {
+  const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', async () => {
     highlightingActive = false;
     fileHighlights.clear();
 
-    vscode.window.visibleTextEditors.forEach(editor => {
+    for (const editor of vscode.window.visibleTextEditors) {
+      const uri = editor.document.uri.toString();
       decorationStyles.forEach(style => editor.setDecorations(style, []));
-    });
+
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const wasAddedByUs = blankLineAddedByExtension.get(uri);
+
+      if (wasAddedByUs && lastLine.isEmptyOrWhitespace && lastLineIndex > 0) {
+        await editor.edit(editBuilder => {
+          const range = new vscode.Range(
+            new vscode.Position(lastLineIndex - 1, editor.document.lineAt(lastLineIndex - 1).text.length),
+            new vscode.Position(lastLineIndex, lastLine.text.length)
+          );
+          editBuilder.delete(range);
+        });
+        await editor.document.save();
+        blankLineAddedByExtension.set(uri, false);
+      }
+    }
 
     vscode.window.showInformationMessage('Stopped highlight mode and cleared all highlights.');
   });
@@ -188,7 +226,8 @@ export function activate(context: vscode.ExtensionContext) {
           await editor.edit(editBuilder => {
             editBuilder.insert(new vscode.Position(editor.document.lineCount, 0), '\n');
           });
-          vscode.window.showInformationMessage('Blank line added at end of file.');
+          blankLineAddedByExtension.set(uri, true);
+          // vscode.window.showInformationMessage('Blank line added at end of file.');
         }
       }
 
