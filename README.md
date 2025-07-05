@@ -45,9 +45,16 @@ Run the `Highlight: Clear Highlights` command to remove all highlights from the 
 Run the `Highlight: Stop Highlighting` command to disable highlighting mode. This will clear all highlights from all files and stop the extension from highlighting any text.
 ![Stop Highlighting Demo](assets/Stop-Highlighting.gif)
 
+<!-- Complete Video Guide Link -->
+### Video Guide
+For a complete walkthrough of the extension, check out this video guide: [Complete Guide](https://drive.google.com/file/d/1RfunxJfz-XYGIArupBPGyaGriFKQERoG/view?usp=sharing)
+
 ---
 
 ## 🧑‍💻 Developer Guide
+
+### Source Code
+The source code for this extension is available on [Highlight-It](https://github.com/SarveshMankar/vscode-Highlight-It).
 
 ### Commands
 
@@ -86,7 +93,7 @@ Ensure the following commands are defined in your `package.json`:
 
 ### Contributing
 
-1. Fork this repository 
+1. Fork the [Highlight-It](https://github.com/SarveshMankar/vscode-Highlight-It) Repository
 2. Create a new branch for your feature or bugfix
 3. Submit a pull request with a clear explanation
 
