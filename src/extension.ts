@@ -23,9 +23,11 @@ export function activate(context: vscode.ExtensionContext) {
     if (!decorationStyles.has(color)) {
       decorationStyles.set(color, vscode.window.createTextEditorDecorationType({
         backgroundColor: color,
-        isWholeLine: false, // prevent full line coloring
+        isWholeLine: false,
         rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-        borderRadius: '3px'
+        borderRadius: '3px',
+        overviewRulerColor: color,
+        overviewRulerLane: vscode.OverviewRulerLane.Full
       }));
     }
     return decorationStyles.get(color)!;
