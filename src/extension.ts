@@ -23,6 +23,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (!decorationStyles.has(color)) {
       decorationStyles.set(color, vscode.window.createTextEditorDecorationType({
         backgroundColor: color,
+        border: '1px dashed #888',
         isWholeLine: false,
         rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         borderRadius: '3px',
