@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 // Current selected color for highlighting (default is red)
-let currentColor = 'rgba(255, 0, 0, 0.7)';
+let currentColor = 'rgba(255, 0, 0, 0.5)';
 
 // Map to store decoration types by color
 let decorationStyles: Map<string, vscode.TextEditorDecorationType> = new Map();
@@ -83,12 +83,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     if (picked) {
       const colorMap: any = {
-        Red: 'rgba(255, 0, 0, 0.7)',
-        Yellow: 'rgba(255, 255, 0, 0.7)',
-        Green: 'rgba(0, 255, 0, 0.7)',
-        Blue: 'rgba(0, 0, 255, 0.7)',
-        Pink: 'rgba(255, 105, 180, 0.7)',
-        Orange: 'rgba(255, 165, 0, 0.7)'
+        Red: 'rgba(255, 0, 0, 0.5)',
+        Yellow: 'rgba(255, 255, 0, 0.5)',
+        Green: 'rgba(0, 255, 0, 0.5)',
+        Blue: 'rgba(0, 0, 255, 0.5)',
+        Pink: 'rgba(255, 105, 180, 0.5)',
+        Orange: 'rgba(255, 165, 0, 0.5)'
       };
 
       currentColor = colorMap[picked];
