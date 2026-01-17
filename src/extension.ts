@@ -17,7 +17,48 @@ let highlightingActive = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
 let lastSelectionKey = '';
 
+// Extension context for storing highlights
+let extensionContext: vscode.ExtensionContext;
+
+// Helper functions for persistence
+function getStorageKey(uri: string): string {
+  return `highlights_${uri}`;
+}
+
+function serializeHighlights(highlights: { color: string; range: vscode.Range }[]): any[] {
+  return highlights.map(h => ({
+    color: h.color,
+    range: {
+      start: { line: h.range.start.line, character: h.range.start.character },
+      end: { line: h.range.end.line, character: h.range.end.character }
+    }
+  }));
+}
+
+function deserializeHighlights(data: any[]): { color: string; range: vscode.Range }[] {
+  return data.map(h => ({
+    color: h.color,
+    range: new vscode.Range(
+      new vscode.Position(h.range.start.line, h.range.start.character),
+      new vscode.Position(h.range.end.line, h.range.end.character)
+    )
+  }));
+}
+
+function saveHighlights(uri: string, highlights: { color: string; range: vscode.Range }[]): void {
+  extensionContext.globalState.update(getStorageKey(uri), serializeHighlights(highlights));
+}
+
+function loadHighlights(uri: string): { color: string; range: vscode.Range }[] {
+  const stored = extensionContext.globalState.get(getStorageKey(uri));
+  if (stored && Array.isArray(stored)) {
+    return deserializeHighlights(stored);
+  }
+  return [];
+}
+
 export function activate(context: vscode.ExtensionContext) {
+  extensionContext = context;
   // Returns or creates a decoration type for a given color
   function getDecorationType(color: string): vscode.TextEditorDecorationType {
     if (!decorationStyles.has(color)) {
@@ -41,7 +82,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     if (editor) {
       const uri = editor.document.uri.toString();
-      const highlights = fileHighlights.get(uri) || [];
+      // Load persisted highlights from storage
+      let highlights = fileHighlights.get(uri);
+      if (!highlights) {
+        highlights = loadHighlights(uri);
+        fileHighlights.set(uri, highlights);
+      }
 
       const lastLineIndex = editor.document.lineCount - 1;
       const lastLine = editor.document.lineAt(lastLineIndex);
@@ -104,6 +150,8 @@ export function activate(context: vscode.ExtensionContext) {
     if (editor) {
       const uri = editor.document.uri.toString();
       fileHighlights.set(uri, []);
+      // Clear persisted highlights
+      saveHighlights(uri, []);
       decorationStyles.forEach(style => editor.setDecorations(style, []));
 
       const lastLineIndex = editor.document.lineCount - 1;
@@ -129,6 +177,13 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to stop highlight mode and clear all highlights across files
   const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', async () => {
     highlightingActive = false;
+    // Clear all persisted highlights
+    const allKeys = extensionContext.globalState.keys();
+    for (const key of allKeys) {
+      if (key.startsWith('highlights_')) {
+        await extensionContext.globalState.update(key, undefined);
+      }
+    }
     fileHighlights.clear();
 
     for (const editor of vscode.window.visibleTextEditors) {
@@ -215,6 +270,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       fileHighlights.set(uri, highlights);
 
+      // Save highlights to persistent storage
+      saveHighlights(uri, highlights);
+
       // Add blank line only if a highlight goes till end of file
       const lastLineIndex = editor.document.lineCount - 1;
       const lastLine = editor.document.lineAt(lastLineIndex);
@@ -245,12 +303,19 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Listener to reapply highlights when switching between files
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
-    if (editor) {
+    if (editor && highlightingActive) {
       const uri = editor.document.uri.toString();
-      const highlights = fileHighlights.get(uri) || [];
+      let highlights = fileHighlights.get(uri);
+      
+      // Load from storage if not in memory yet
+      if (!highlights) {
+        highlights = loadHighlights(uri);
+        fileHighlights.set(uri, highlights);
+      }
+      
       const colorsInUse = new Set(highlights.map(h => h.color));
       colorsInUse.forEach(color => {
-        const ranges = highlights.filter(h => h.color === color).map(h => h.range);
+        const ranges = highlights!.filter(h => h.color === color).map(h => h.range);
         const style = getDecorationType(color);
         editor.setDecorations(style, ranges);
       });
