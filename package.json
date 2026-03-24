@@ -19,7 +19,10 @@
     "onCommand:extension.startHighlighting",
     "onCommand:extension.setHighlightColor",
     "onCommand:extension.clearHighlights",
-    "onCommand:extension.stopHighlighting"
+    "onCommand:extension.stopHighlighting",
+    "onCommand:extension.stopAndClearHighlights",
+    "onCommand:extension.clearAllHighlightsPermanently",
+    "onCommand:extension.resetHighlightsForCurrentFolder"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -36,6 +39,18 @@
       {
         "command": "extension.stopHighlighting",
         "title": "Highlight: Stop Highlighting (All Files)"
+      },
+      {
+        "command": "extension.stopAndClearHighlights",
+        "title": "Highlight: Stop and Clear Highlights (All Files)"
+      },
+      {
+        "command": "extension.clearAllHighlightsPermanently",
+        "title": "Highlight: Clear All Highlights Permanently (Current Branch)"
+      },
+      {
+        "command": "extension.resetHighlightsForCurrentFolder",
+        "title": "Highlight: Reset Highlight-It (Current Folder)"
       },
       {
         "command": "extension.setHighlightColor",

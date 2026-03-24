@@ -54,6 +54,11 @@ type GitApiLike = {
   onDidOpenRepository?: (listener: (repo: GitRepositoryLike) => void) => vscode.Disposable;
 };
 
+function isUriInWorkspaceFolder(uri: vscode.Uri, folder: vscode.WorkspaceFolder): boolean {
+  const folderPath = folder.uri.path.endsWith('/') ? folder.uri.path : `${folder.uri.path}/`;
+  return uri.path === folder.uri.path || uri.path.startsWith(folderPath);
+}
+
 function serializeHighlights(highlights: { color: string; range: vscode.Range }[]): SerializedHighlight[] {
   return highlights.map(h => ({
     color: h.color,
@@ -370,10 +375,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  // Command to stop highlight mode while preserving saved highlights
+  // Command to stop highlight mode without removing existing highlights
   const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', async () => {
     highlightingActive = false;
-    // Keep persisted highlights so starting again restores branch/file highlights.
+
+    vscode.window.showInformationMessage('Highlighting mode stopped. Existing highlights are preserved.');
+  });
+
+  // Command to stop highlight mode and clear active editor decorations only
+  const stopAndClearCommand = vscode.commands.registerCommand('extension.stopAndClearHighlights', async () => {
+    highlightingActive = false;
+
+    // Clear in-memory highlights so next start reloads from persisted storage.
     fileHighlights.clear();
 
     for (const editor of vscode.window.visibleTextEditors) {
@@ -400,7 +413,164 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }
 
-    vscode.window.showInformationMessage('Highlighting mode stopped. Saved highlights are preserved for restart.');
+    vscode.window.showInformationMessage('Highlighting mode stopped and visible highlights were cleared. Run Start Highlighting to restore saved highlights.');
+  });
+
+  // Command to permanently delete highlights only for the current branch
+  const clearAllHighlightsPermanentlyCommand = vscode.commands.registerCommand('extension.clearAllHighlightsPermanently', async () => {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      vscode.window.showWarningMessage('Open a file in the branch you want to clear permanently.');
+      return;
+    }
+
+    const targetBranch = await getGitBranchName(activeEditor.document.uri);
+    highlightingActive = false;
+
+    const allKeys = extensionContext.globalState.keys();
+    let changedFiles = 0;
+    for (const key of allKeys) {
+      if (key.startsWith('highlights_')) {
+        const stored = extensionContext.globalState.get<unknown>(key);
+
+        // Legacy format (pre-branch) is treated as current-branch data.
+        if (Array.isArray(stored)) {
+          await extensionContext.globalState.update(key, {});
+          changedFiles += 1;
+          continue;
+        }
+
+        if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+          const branchStore = { ...(stored as BranchScopedHighlightStore) };
+          if (targetBranch in branchStore) {
+            delete branchStore[targetBranch];
+            await extensionContext.globalState.update(key, branchStore);
+            changedFiles += 1;
+          }
+        }
+      }
+    }
+
+    for (const fileKey of Array.from(fileHighlights.keys())) {
+      if (fileKey.startsWith(`${targetBranch}::`)) {
+        fileHighlights.delete(fileKey);
+      }
+    }
+
+    for (const editor of vscode.window.visibleTextEditors) {
+      const branch = await getGitBranchName(editor.document.uri);
+      if (branch !== targetBranch) {
+        continue;
+      }
+
+      const uri = editor.document.uri.toString();
+      clearEditorDecorations(editor);
+      const fileKey = getFileBranchKey(uri, branch);
+
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const wasAddedByUs = blankLineAddedByExtension.get(fileKey);
+
+      if (wasAddedByUs && lastLine.isEmptyOrWhitespace && lastLineIndex > 0) {
+        await editor.edit(editBuilder => {
+          const range = new vscode.Range(
+            new vscode.Position(lastLineIndex - 1, editor.document.lineAt(lastLineIndex - 1).text.length),
+            new vscode.Position(lastLineIndex, lastLine.text.length)
+          );
+          editBuilder.delete(range);
+        });
+        await editor.document.save();
+        blankLineAddedByExtension.set(fileKey, false);
+      }
+    }
+
+    vscode.window.showInformationMessage(`Permanently deleted highlights for branch "${targetBranch}" in ${changedFiles} file(s).`);
+  });
+
+  // Command to reset highlight extension data for current folder across all branches
+  const resetHighlightsForCurrentFolderCommand = vscode.commands.registerCommand('extension.resetHighlightsForCurrentFolder', async () => {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor) {
+      vscode.window.showWarningMessage('Open a file in the folder you want to reset.');
+      return;
+    }
+
+    const folder = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+    if (!folder) {
+      vscode.window.showWarningMessage('Active file is not inside a workspace folder.');
+      return;
+    }
+
+    highlightingActive = false;
+
+    const allKeys = extensionContext.globalState.keys();
+    let clearedFiles = 0;
+    for (const key of allKeys) {
+      if (!key.startsWith('highlights_')) {
+        continue;
+      }
+
+      const uriString = key.slice('highlights_'.length);
+
+      try {
+        const fileUri = vscode.Uri.parse(uriString);
+        if (!isUriInWorkspaceFolder(fileUri, folder)) {
+          continue;
+        }
+
+        await extensionContext.globalState.update(key, undefined);
+        clearedFiles += 1;
+      } catch {
+        // Ignore malformed keys and continue.
+      }
+    }
+
+    for (const fileKey of Array.from(fileHighlights.keys())) {
+      const separatorIndex = fileKey.indexOf('::');
+      if (separatorIndex < 0) {
+        continue;
+      }
+
+      const uriString = fileKey.slice(separatorIndex + 2);
+      try {
+        const fileUri = vscode.Uri.parse(uriString);
+        if (isUriInWorkspaceFolder(fileUri, folder)) {
+          fileHighlights.delete(fileKey);
+        }
+      } catch {
+        // Ignore malformed in-memory keys and continue.
+      }
+    }
+
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (!isUriInWorkspaceFolder(editor.document.uri, folder)) {
+        continue;
+      }
+
+      const uri = editor.document.uri.toString();
+      const branch = await getGitBranchName(editor.document.uri);
+      const fileKey = getFileBranchKey(uri, branch);
+
+      clearEditorDecorations(editor);
+
+      const lastLineIndex = editor.document.lineCount - 1;
+      const lastLine = editor.document.lineAt(lastLineIndex);
+      const wasAddedByUs = blankLineAddedByExtension.get(fileKey);
+
+      if (wasAddedByUs && lastLine.isEmptyOrWhitespace && lastLineIndex > 0) {
+        await editor.edit(editBuilder => {
+          const range = new vscode.Range(
+            new vscode.Position(lastLineIndex - 1, editor.document.lineAt(lastLineIndex - 1).text.length),
+            new vscode.Position(lastLineIndex, lastLine.text.length)
+          );
+          editBuilder.delete(range);
+        });
+        await editor.document.save();
+        blankLineAddedByExtension.set(fileKey, false);
+      }
+    }
+
+    vscode.window.showInformationMessage(`Highlight-It reset complete for folder "${folder.name}". Cleared all saved highlights.`);
   });
 
   // Listener that reacts when the user selects text in the editor
@@ -574,6 +744,9 @@ export function activate(context: vscode.ExtensionContext) {
     setColorCommand,
     clearCommand,
     stopCommand,
+    stopAndClearCommand,
+    clearAllHighlightsPermanentlyCommand,
+    resetHighlightsForCurrentFolderCommand,
     selectionListener,
     editorChangeListener,
     documentChangeListener,
