@@ -26,10 +26,11 @@ let lastSelectionKey = '';
 
 // Extension context for storing highlights
 let extensionContext: vscode.ExtensionContext;
+const HIGHLIGHT_STORAGE_PREFIX = 'highlights_';
 
 // Helper functions for persistence
 function getStorageKey(uri: string): string {
-  return `highlights_${uri}`;
+  return `${HIGHLIGHT_STORAGE_PREFIX}${uri}`;
 }
 
 function getFileBranchKey(uri: string, branch: string): string {
@@ -58,6 +59,336 @@ type GitApiLike = {
   repositories?: GitRepositoryLike[];
   onDidOpenRepository?: (listener: (repo: GitRepositoryLike) => void) => vscode.Disposable;
 };
+
+class HighlightDecorationProvider implements vscode.FileDecorationProvider {
+  private readonly onDidChangeFileDecorationsEmitter = new vscode.EventEmitter<vscode.Uri | vscode.Uri[]>();
+
+  readonly onDidChangeFileDecorations = this.onDidChangeFileDecorationsEmitter.event;
+
+  private highlightedFileUris = new Set<string>();
+  private highlightedFolderUris = new Set<string>();
+  private fileAncestorFolders = new Map<string, string[]>();
+  private folderHighlightCounts = new Map<string, number>();
+  private decorationsEnabled = true;
+
+  provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
+    if (uri.scheme !== 'file') {
+      return;
+    }
+
+    if (!this.decorationsEnabled) {
+      return;
+    }
+
+    const uriString = uri.toString();
+    if (this.highlightedFileUris.has(uriString)) {
+      return new vscode.FileDecoration(
+        'H',
+        'This file contains highlights',
+        new vscode.ThemeColor('charts.yellow')
+      );
+    }
+
+    if (this.highlightedFolderUris.has(uriString)) {
+      return new vscode.FileDecoration(
+        'H',
+        'This folder contains highlighted files',
+        new vscode.ThemeColor('charts.yellow')
+      );
+    }
+
+    return;
+  }
+
+  setDecorationsEnabled(enabled: boolean): void {
+    if (this.decorationsEnabled === enabled) {
+      return;
+    }
+
+    this.decorationsEnabled = enabled;
+    this.emitChangedUriStrings(new Set<string>([
+      ...this.highlightedFileUris,
+      ...this.highlightedFolderUris
+    ]));
+  }
+
+  async refreshFile(uri: vscode.Uri): Promise<void> {
+    if (uri.scheme !== 'file') {
+      return;
+    }
+
+    const branch = await getGitBranchName(uri);
+    const fileKey = getFileBranchKey(uri.toString(), branch);
+    const highlights = removeEmptyHighlights(fileHighlights.get(fileKey) ?? loadHighlights(uri.toString(), branch));
+    this.setFileHighlightState(uri, highlights.length > 0);
+  }
+
+  async applyKnownHighlights(uri: vscode.Uri, branch: string, highlights: HighlightEntry[]): Promise<void> {
+    if (uri.scheme !== 'file') {
+      return;
+    }
+
+    const currentBranch = await getGitBranchName(uri);
+    if (currentBranch !== branch) {
+      await this.refreshFile(uri);
+      return;
+    }
+
+    this.setFileHighlightState(uri, removeEmptyHighlights(highlights).length > 0);
+  }
+
+  async rebuildFromCurrentBranchState(): Promise<void> {
+    const previousFiles = this.highlightedFileUris;
+    const previousFolders = this.highlightedFolderUris;
+
+    const nextFiles = await this.collectHighlightedFilesForCurrentBranch();
+    const {
+      folderUris: nextFolders,
+      fileAncestorFolders: nextFileAncestors,
+      folderHighlightCounts: nextFolderCounts
+    } = this.buildFolderState(nextFiles);
+
+    this.highlightedFileUris = nextFiles;
+    this.highlightedFolderUris = nextFolders;
+    this.fileAncestorFolders = nextFileAncestors;
+    this.folderHighlightCounts = nextFolderCounts;
+
+    const changedUriStrings = this.getChangedUriStrings(previousFiles, this.highlightedFileUris);
+    for (const folderUri of this.getChangedUriStrings(previousFolders, this.highlightedFolderUris)) {
+      changedUriStrings.add(folderUri);
+    }
+
+    this.emitChangedUriStrings(changedUriStrings);
+  }
+
+  dispose(): void {
+    this.onDidChangeFileDecorationsEmitter.dispose();
+  }
+
+  private async collectHighlightedFilesForCurrentBranch(): Promise<Set<string>> {
+    const highlightedUris = new Set<string>();
+    const branchByUri = new Map<string, string>();
+    const inMemoryOverrides = new Map<string, boolean>();
+
+    const getCurrentBranchForUri = async (uriString: string): Promise<string | undefined> => {
+      if (branchByUri.has(uriString)) {
+        return branchByUri.get(uriString);
+      }
+
+      try {
+        const uri = vscode.Uri.parse(uriString);
+        if (uri.scheme !== 'file') {
+          return undefined;
+        }
+
+        const branch = await getGitBranchName(uri);
+        branchByUri.set(uriString, branch);
+        return branch;
+      } catch {
+        return undefined;
+      }
+    };
+
+    const storageKeys = extensionContext.globalState.keys().filter(key => key.startsWith(HIGHLIGHT_STORAGE_PREFIX));
+    for (const key of storageKeys) {
+      const uriString = key.slice(HIGHLIGHT_STORAGE_PREFIX.length);
+      const branch = await getCurrentBranchForUri(uriString);
+      if (!branch) {
+        continue;
+      }
+
+      const stored = extensionContext.globalState.get<unknown>(key);
+      if (Array.isArray(stored)) {
+        if ((stored as SerializedHighlight[]).length > 0) {
+          highlightedUris.add(uriString);
+        }
+        continue;
+      }
+
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+        const branchStore = stored as BranchScopedHighlightStore;
+        const branchHighlights = branchStore[branch];
+        if (Array.isArray(branchHighlights) && branchHighlights.length > 0) {
+          highlightedUris.add(uriString);
+        }
+      }
+    }
+
+    for (const [fileKey, highlights] of fileHighlights.entries()) {
+      const separatorIndex = fileKey.indexOf('::');
+      if (separatorIndex < 0) {
+        continue;
+      }
+
+      const branchInKey = fileKey.slice(0, separatorIndex);
+      const uriString = fileKey.slice(separatorIndex + 2);
+      const currentBranch = await getCurrentBranchForUri(uriString);
+      if (!currentBranch || currentBranch !== branchInKey) {
+        continue;
+      }
+
+      inMemoryOverrides.set(uriString, removeEmptyHighlights(highlights).length > 0);
+    }
+
+    for (const [uriString, hasHighlights] of inMemoryOverrides.entries()) {
+      if (hasHighlights) {
+        highlightedUris.add(uriString);
+      } else {
+        highlightedUris.delete(uriString);
+      }
+    }
+
+    return highlightedUris;
+  }
+
+  private buildFolderState(fileUris: Set<string>): {
+    folderUris: Set<string>;
+    fileAncestorFolders: Map<string, string[]>;
+    folderHighlightCounts: Map<string, number>;
+  } {
+    const folderUris = new Set<string>();
+    const fileAncestorFolders = new Map<string, string[]>();
+    const folderHighlightCounts = new Map<string, number>();
+
+    for (const fileUriString of fileUris) {
+      let parsedUri: vscode.Uri;
+      try {
+        parsedUri = vscode.Uri.parse(fileUriString);
+      } catch {
+        continue;
+      }
+
+      const ancestors = this.getAncestorFolderUris(parsedUri);
+      fileAncestorFolders.set(fileUriString, ancestors);
+
+      for (const folderUriString of ancestors) {
+        const nextCount = (folderHighlightCounts.get(folderUriString) ?? 0) + 1;
+        folderHighlightCounts.set(folderUriString, nextCount);
+        folderUris.add(folderUriString);
+      }
+    }
+
+    return { folderUris, fileAncestorFolders, folderHighlightCounts };
+  }
+
+  private setFileHighlightState(uri: vscode.Uri, hasHighlights: boolean): void {
+    const uriString = uri.toString();
+    const changedUriStrings = new Set<string>();
+
+    if (hasHighlights) {
+      this.addHighlightedFileUri(uriString, changedUriStrings);
+    } else {
+      this.removeHighlightedFileUri(uriString, changedUriStrings);
+    }
+
+    this.emitChangedUriStrings(changedUriStrings);
+  }
+
+  private addHighlightedFileUri(fileUriString: string, changedUriStrings: Set<string>): void {
+    if (this.highlightedFileUris.has(fileUriString)) {
+      return;
+    }
+
+    this.highlightedFileUris.add(fileUriString);
+    changedUriStrings.add(fileUriString);
+
+    let fileUri: vscode.Uri;
+    try {
+      fileUri = vscode.Uri.parse(fileUriString);
+    } catch {
+      return;
+    }
+
+    const ancestors = this.getAncestorFolderUris(fileUri);
+    this.fileAncestorFolders.set(fileUriString, ancestors);
+
+    for (const folderUriString of ancestors) {
+      const previousCount = this.folderHighlightCounts.get(folderUriString) ?? 0;
+      const nextCount = previousCount + 1;
+      this.folderHighlightCounts.set(folderUriString, nextCount);
+
+      if (previousCount === 0) {
+        this.highlightedFolderUris.add(folderUriString);
+        changedUriStrings.add(folderUriString);
+      }
+    }
+  }
+
+  private removeHighlightedFileUri(fileUriString: string, changedUriStrings: Set<string>): void {
+    if (!this.highlightedFileUris.delete(fileUriString)) {
+      return;
+    }
+
+    changedUriStrings.add(fileUriString);
+
+    const ancestors = this.fileAncestorFolders.get(fileUriString) ?? [];
+    this.fileAncestorFolders.delete(fileUriString);
+
+    for (const folderUriString of ancestors) {
+      const previousCount = this.folderHighlightCounts.get(folderUriString) ?? 0;
+      if (previousCount <= 1) {
+        this.folderHighlightCounts.delete(folderUriString);
+        if (this.highlightedFolderUris.delete(folderUriString)) {
+          changedUriStrings.add(folderUriString);
+        }
+      } else {
+        this.folderHighlightCounts.set(folderUriString, previousCount - 1);
+      }
+    }
+  }
+
+  private getAncestorFolderUris(fileUri: vscode.Uri): string[] {
+    const ancestors: string[] = [];
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+
+    let currentPath = path.dirname(fileUri.fsPath);
+    const workspaceRootPath = workspaceFolder?.uri.fsPath;
+
+    while (true) {
+      ancestors.push(vscode.Uri.file(currentPath).toString());
+
+      if (workspaceRootPath && path.normalize(currentPath) === path.normalize(workspaceRootPath)) {
+        break;
+      }
+
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        break;
+      }
+
+      currentPath = parentPath;
+    }
+
+    return ancestors;
+  }
+
+  private getChangedUriStrings(previous: Set<string>, next: Set<string>): Set<string> {
+    const changed = new Set<string>();
+
+    for (const uriString of previous) {
+      if (!next.has(uriString)) {
+        changed.add(uriString);
+      }
+    }
+
+    for (const uriString of next) {
+      if (!previous.has(uriString)) {
+        changed.add(uriString);
+      }
+    }
+
+    return changed;
+  }
+
+  private emitChangedUriStrings(changedUriStrings: Set<string>): void {
+    if (changedUriStrings.size === 0) {
+      return;
+    }
+
+    const changedUris = Array.from(changedUriStrings).map(uriString => vscode.Uri.parse(uriString));
+    this.onDidChangeFileDecorationsEmitter.fire(changedUris);
+  }
+}
 
 function isUriInWorkspaceFolder(uri: vscode.Uri, folder: vscode.WorkspaceFolder): boolean {
   const folderPath = folder.uri.path.endsWith('/') ? folder.uri.path : `${folder.uri.path}/`;
@@ -332,6 +663,13 @@ async function getHighlightsForEditor(editor: vscode.TextEditor): Promise<{
 
 export function activate(context: vscode.ExtensionContext) {
   extensionContext = context;
+  const highlightDecorationProvider = new HighlightDecorationProvider();
+  context.subscriptions.push(
+    highlightDecorationProvider,
+    vscode.window.registerFileDecorationProvider(highlightDecorationProvider)
+  );
+  void highlightDecorationProvider.rebuildFromCurrentBranchState();
+
   // Returns or creates a decoration type for a given color
   function getDecorationType(color: string): vscode.TextEditorDecorationType {
     if (!decorationStyles.has(color)) {
@@ -389,7 +727,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     branchRefreshTimer = setTimeout(() => {
-      void refreshVisibleEditorsFromBranchState();
+      void (async () => {
+        await highlightDecorationProvider.rebuildFromCurrentBranchState();
+        await refreshVisibleEditorsFromBranchState();
+      })();
       branchRefreshTimer = null;
     }, delayMs);
   }
@@ -425,6 +766,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to start highlight mode
   const startCommand = vscode.commands.registerCommand('extension.startHighlighting', async () => {
     highlightingActive = true;
+    highlightDecorationProvider.setDecorationsEnabled(true);
+    await highlightDecorationProvider.rebuildFromCurrentBranchState();
     const editor = vscode.window.activeTextEditor;
 
     if (editor) {
@@ -452,6 +795,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       fileHighlights.set(fileKey, highlights);
+      await highlightDecorationProvider.applyKnownHighlights(editor.document.uri, branch, highlights);
       applyHighlightsToEditor(editor, highlights);
     }
 
@@ -489,6 +833,7 @@ export function activate(context: vscode.ExtensionContext) {
       const branch = await getGitBranchName(editor.document.uri);
       const fileKey = getFileBranchKey(uri, branch);
       fileHighlights.set(fileKey, []);
+      await highlightDecorationProvider.applyKnownHighlights(editor.document.uri, branch, []);
       // Clear persisted highlights
       await saveHighlights(uri, branch, []);
       clearEditorDecorations(editor);
@@ -526,6 +871,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Clear in-memory highlights so next start reloads from persisted storage.
     fileHighlights.clear();
+    highlightDecorationProvider.setDecorationsEnabled(false);
 
     for (const editor of vscode.window.visibleTextEditors) {
       const uri = editor.document.uri.toString();
@@ -568,7 +914,7 @@ export function activate(context: vscode.ExtensionContext) {
     const allKeys = extensionContext.globalState.keys();
     let changedFiles = 0;
     for (const key of allKeys) {
-      if (key.startsWith('highlights_')) {
+      if (key.startsWith(HIGHLIGHT_STORAGE_PREFIX)) {
         const stored = extensionContext.globalState.get<unknown>(key);
 
         // Legacy format (pre-branch) is treated as current-branch data.
@@ -594,6 +940,7 @@ export function activate(context: vscode.ExtensionContext) {
         fileHighlights.delete(fileKey);
       }
     }
+    await highlightDecorationProvider.rebuildFromCurrentBranchState();
 
     for (const editor of vscode.window.visibleTextEditors) {
       const branch = await getGitBranchName(editor.document.uri);
@@ -644,11 +991,11 @@ export function activate(context: vscode.ExtensionContext) {
     const allKeys = extensionContext.globalState.keys();
     let clearedFiles = 0;
     for (const key of allKeys) {
-      if (!key.startsWith('highlights_')) {
+      if (!key.startsWith(HIGHLIGHT_STORAGE_PREFIX)) {
         continue;
       }
 
-      const uriString = key.slice('highlights_'.length);
+      const uriString = key.slice(HIGHLIGHT_STORAGE_PREFIX.length);
 
       try {
         const fileUri = vscode.Uri.parse(uriString);
@@ -679,6 +1026,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Ignore malformed in-memory keys and continue.
       }
     }
+    await highlightDecorationProvider.rebuildFromCurrentBranchState();
 
     for (const editor of vscode.window.visibleTextEditors) {
       if (!isUriInWorkspaceFolder(editor.document.uri, folder)) {
@@ -772,6 +1120,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       fileHighlights.set(fileKey, highlights);
+      await highlightDecorationProvider.applyKnownHighlights(editor.document.uri, branch, highlights);
 
       // Save highlights to persistent storage
       await saveHighlights(uri, branch, highlights);
@@ -805,6 +1154,10 @@ export function activate(context: vscode.ExtensionContext) {
       const { highlights } = await getHighlightsForEditor(editor);
       applyHighlightsToEditor(editor, highlights);
     }
+  });
+
+  const openDocumentListener = vscode.workspace.onDidOpenTextDocument((document) => {
+    void highlightDecorationProvider.refreshFile(document.uri);
   });
 
   // Refresh highlights after branch checkout updates .git internals.
@@ -891,6 +1244,7 @@ export function activate(context: vscode.ExtensionContext) {
     const rebasedHighlights = removeEmptyHighlights(rebaseHighlightsForDocumentChanges(highlights, event.contentChanges));
     if (!areHighlightsEqual(highlights, rebasedHighlights)) {
       fileHighlights.set(fileKey, rebasedHighlights);
+      await highlightDecorationProvider.applyKnownHighlights(event.document.uri, branch, rebasedHighlights);
       schedulePersistHighlights(uri, branch, fileKey, rebasedHighlights);
     }
 
@@ -912,6 +1266,7 @@ export function activate(context: vscode.ExtensionContext) {
     resetHighlightsForCurrentFolderCommand,
     selectionListener,
     editorChangeListener,
+    openDocumentListener,
     documentChangeListener,
     windowFocusListener,
     ...gitHeadWatchers.flatMap(item => [
