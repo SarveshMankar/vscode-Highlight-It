@@ -14,6 +14,9 @@ let fileHighlights: Map<string, { color: string; range: vscode.Range }[]> = new 
 // Map to track if a blank line was added by the extension for each file
 let blankLineAddedByExtension: Map<string, boolean> = new Map();
 
+// Debounce timers for persisting highlight updates caused by text edits.
+let persistTimersByFileKey: Map<string, NodeJS.Timeout> = new Map();
+
 // Toggle state and timers for selection stability
 let highlightingActive = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
@@ -42,6 +45,8 @@ type SerializedHighlight = {
 };
 
 type BranchScopedHighlightStore = Record<string, SerializedHighlight[]>;
+
+type HighlightEntry = { color: string; range: vscode.Range };
 
 type GitRepositoryLike = {
   state?: {
@@ -77,6 +82,125 @@ function deserializeHighlights(data: SerializedHighlight[]): { color: string; ra
       new vscode.Position(h.range.end.line, h.range.end.character)
     )
   }));
+}
+
+function getInsertedEndPosition(start: vscode.Position, insertedText: string): vscode.Position {
+  if (insertedText.length === 0) {
+    return start;
+  }
+
+  const lines = insertedText.split('\n');
+  if (lines.length === 1) {
+    return new vscode.Position(start.line, start.character + lines[0].length);
+  }
+
+  return new vscode.Position(start.line + lines.length - 1, lines[lines.length - 1].length);
+}
+
+function shiftPositionAfterChange(
+  position: vscode.Position,
+  oldEnd: vscode.Position,
+  newEnd: vscode.Position
+): vscode.Position {
+  const lineDelta = newEnd.line - oldEnd.line;
+  if (lineDelta === 0) {
+    if (position.line !== oldEnd.line) {
+      return position;
+    }
+
+    return new vscode.Position(position.line, position.character + (newEnd.character - oldEnd.character));
+  }
+
+  if (position.line === oldEnd.line) {
+    return new vscode.Position(position.line + lineDelta, newEnd.character + (position.character - oldEnd.character));
+  }
+
+  return new vscode.Position(position.line + lineDelta, position.character);
+}
+
+function rebaseRangeForContentChange(range: vscode.Range, change: vscode.TextDocumentContentChangeEvent): vscode.Range | null {
+  const changeStart = change.range.start;
+  const changeOldEnd = change.range.end;
+  const changeNewEnd = getInsertedEndPosition(changeStart, change.text);
+  const isPureInsertion = change.rangeLength === 0;
+
+  if (isPureInsertion) {
+    if (changeStart.isBeforeOrEqual(range.start)) {
+      return new vscode.Range(
+        shiftPositionAfterChange(range.start, changeOldEnd, changeNewEnd),
+        shiftPositionAfterChange(range.end, changeOldEnd, changeNewEnd)
+      );
+    }
+
+    if (changeStart.isAfter(range.start) && changeStart.isBefore(range.end)) {
+      return new vscode.Range(range.start, shiftPositionAfterChange(range.end, changeOldEnd, changeNewEnd));
+    }
+
+    return range;
+  }
+
+  // No overlap with replaced/deleted segment.
+  if (range.end.isBeforeOrEqual(changeStart)) {
+    return range;
+  }
+  if (range.start.isAfterOrEqual(changeOldEnd)) {
+    return new vscode.Range(
+      shiftPositionAfterChange(range.start, changeOldEnd, changeNewEnd),
+      shiftPositionAfterChange(range.end, changeOldEnd, changeNewEnd)
+    );
+  }
+
+  const newStart = range.start.isBefore(changeStart)
+    ? range.start
+    : (range.start.isAfter(changeOldEnd)
+      ? shiftPositionAfterChange(range.start, changeOldEnd, changeNewEnd)
+      : changeStart);
+
+  const newEnd = range.end.isAfter(changeOldEnd)
+    ? shiftPositionAfterChange(range.end, changeOldEnd, changeNewEnd)
+    : changeNewEnd;
+
+  if (newStart.isAfterOrEqual(newEnd)) {
+    return null;
+  }
+
+  return new vscode.Range(newStart, newEnd);
+}
+
+function rebaseHighlightsForDocumentChanges(
+  highlights: HighlightEntry[],
+  changes: readonly vscode.TextDocumentContentChangeEvent[]
+): HighlightEntry[] {
+  let rebased = highlights;
+
+  for (const change of changes) {
+    rebased = rebased
+      .map(highlight => {
+        const range = rebaseRangeForContentChange(highlight.range, change);
+        return range ? { color: highlight.color, range } : null;
+      })
+      .filter((highlight): highlight is HighlightEntry => highlight !== null);
+  }
+
+  return rebased;
+}
+
+function areHighlightsEqual(a: HighlightEntry[], b: HighlightEntry[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].color !== b[i].color || !a[i].range.isEqual(b[i].range)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function removeEmptyHighlights(highlights: HighlightEntry[]): HighlightEntry[] {
+  return highlights.filter(h => !h.range.isEmpty);
 }
 
 function clearEditorDecorations(editor: vscode.TextEditor): void {
@@ -199,7 +323,7 @@ async function getHighlightsForEditor(editor: vscode.TextEditor): Promise<{
 
   let highlights = fileHighlights.get(fileKey);
   if (!highlights) {
-    highlights = loadHighlights(uri, branch);
+    highlights = removeEmptyHighlights(loadHighlights(uri, branch));
     fileHighlights.set(fileKey, highlights);
   }
 
@@ -232,6 +356,20 @@ export function activate(context: vscode.ExtensionContext) {
       const style = getDecorationType(color);
       editor.setDecorations(style, ranges);
     });
+  }
+
+  function schedulePersistHighlights(uri: string, branch: string, fileKey: string, highlights: HighlightEntry[]): void {
+    const existingTimer = persistTimersByFileKey.get(fileKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      void saveHighlights(uri, branch, highlights);
+      persistTimersByFileKey.delete(fileKey);
+    }, 200);
+
+    persistTimersByFileKey.set(fileKey, timer);
   }
 
   async function refreshVisibleEditorsFromBranchState(): Promise<void> {
@@ -328,7 +466,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     if (picked) {
-      const colorMap: any = {
+      const colorMap: Record<string, string> = {
         Red: 'rgba(255, 0, 0, 0.5)',
         Yellow: 'rgba(255, 255, 0, 0.5)',
         Green: 'rgba(0, 255, 0, 0.5)',
@@ -724,18 +862,43 @@ export function activate(context: vscode.ExtensionContext) {
 
   void registerGitApiBranchListeners();
 
-  // Refresh highlights if files change after a branch checkout.
+  // Rebase highlight ranges so they move with edits and persist the updated positions.
   const documentChangeListener = vscode.workspace.onDidChangeTextDocument(async (event) => {
-    if (!highlightingActive || !vscode.window.activeTextEditor) {
+    if (event.contentChanges.length === 0) {
       return;
     }
 
-    if (event.document.uri.toString() !== vscode.window.activeTextEditor.document.uri.toString()) {
+    const eventVersion = event.document.version;
+    const uri = event.document.uri.toString();
+    const branch = await getGitBranchName(event.document.uri);
+
+    const liveDocument = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === uri);
+    if (liveDocument && liveDocument.version !== eventVersion) {
+      // A newer edit was already applied while this async handler was waiting.
       return;
     }
 
-    const { highlights } = await getHighlightsForEditor(vscode.window.activeTextEditor);
-    applyHighlightsToEditor(vscode.window.activeTextEditor, highlights);
+    const fileKey = getFileBranchKey(uri, branch);
+
+    let highlights = fileHighlights.get(fileKey);
+    if (!highlights) {
+      highlights = loadHighlights(uri, branch);
+      if (highlights.length === 0) {
+        return;
+      }
+    }
+
+    const rebasedHighlights = removeEmptyHighlights(rebaseHighlightsForDocumentChanges(highlights, event.contentChanges));
+    if (!areHighlightsEqual(highlights, rebasedHighlights)) {
+      fileHighlights.set(fileKey, rebasedHighlights);
+      schedulePersistHighlights(uri, branch, fileKey, rebasedHighlights);
+    }
+
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.uri.toString() === uri) {
+        applyHighlightsToEditor(editor, rebasedHighlights);
+      }
+    }
   });
 
   // Register all commands and listeners
@@ -770,4 +933,6 @@ export function deactivate() {
   if (selectionStableTimer) clearTimeout(selectionStableTimer);
   if (branchRefreshTimer) clearTimeout(branchRefreshTimer);
   if (branchPollTimer) clearInterval(branchPollTimer);
+  persistTimersByFileKey.forEach(timer => clearTimeout(timer));
+  persistTimersByFileKey.clear();
 }
