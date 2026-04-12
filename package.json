@@ -22,6 +22,7 @@
     "onCommand:extension.stopHighlighting",
     "onCommand:extension.stopAndClearHighlights",
     "onCommand:extension.clearAllHighlightsPermanently",
+    "onCommand:extension.clearAllHighlightsForCurrentBranch",
     "onCommand:extension.resetHighlightsForCurrentFolder"
   ],
   "main": "./out/extension.js",
@@ -47,6 +48,10 @@
       {
         "command": "extension.clearAllHighlightsPermanently",
         "title": "Highlight: Clear All Highlights Permanently (Current Branch)"
+      },
+      {
+        "command": "extension.clearAllHighlightsForCurrentBranch",
+        "title": "Highlight: Clear All Files Highlights (Current Branch)"
       },
       {
         "command": "extension.resetHighlightsForCurrentFolder",

@@ -538,6 +538,11 @@ function clearEditorDecorations(editor: vscode.TextEditor): void {
   decorationStyles.forEach(style => editor.setDecorations(style, []));
 }
 
+function cancelPendingPersistenceTimers(): void {
+  persistTimersByFileKey.forEach(timer => clearTimeout(timer));
+  persistTimersByFileKey.clear();
+}
+
 async function saveHighlights(
   uri: string,
   branch: string,
@@ -837,6 +842,7 @@ export function activate(context: vscode.ExtensionContext) {
       // Clear persisted highlights
       await saveHighlights(uri, branch, []);
       clearEditorDecorations(editor);
+      await highlightDecorationProvider.rebuildFromCurrentBranchState();
 
       const lastLineIndex = editor.document.lineCount - 1;
       const lastLine = editor.document.lineAt(lastLineIndex);
@@ -901,7 +907,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // Command to permanently delete highlights only for the current branch
-  const clearAllHighlightsPermanentlyCommand = vscode.commands.registerCommand('extension.clearAllHighlightsPermanently', async () => {
+  const clearAllHighlightsForCurrentBranch = async (): Promise<void> => {
     const activeEditor = vscode.window.activeTextEditor;
     if (!activeEditor) {
       vscode.window.showWarningMessage('Open a file in the branch you want to clear permanently.');
@@ -910,6 +916,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     const targetBranch = await getGitBranchName(activeEditor.document.uri);
     highlightingActive = false;
+    lastSelectionKey = '';
+
+    if (selectionStableTimer) {
+      clearTimeout(selectionStableTimer);
+      selectionStableTimer = null;
+    }
+
+    cancelPendingPersistenceTimers();
 
     const allKeys = extensionContext.globalState.keys();
     let changedFiles = 0;
@@ -940,6 +954,13 @@ export function activate(context: vscode.ExtensionContext) {
         fileHighlights.delete(fileKey);
       }
     }
+
+    for (const fileKey of Array.from(blankLineAddedByExtension.keys())) {
+      if (fileKey.startsWith(`${targetBranch}::`)) {
+        blankLineAddedByExtension.delete(fileKey);
+      }
+    }
+
     await highlightDecorationProvider.rebuildFromCurrentBranchState();
 
     for (const editor of vscode.window.visibleTextEditors) {
@@ -970,6 +991,14 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     vscode.window.showInformationMessage(`Permanently deleted highlights for branch "${targetBranch}" in ${changedFiles} file(s).`);
+  };
+
+  const clearAllHighlightsPermanentlyCommand = vscode.commands.registerCommand('extension.clearAllHighlightsPermanently', async () => {
+    await clearAllHighlightsForCurrentBranch();
+  });
+
+  const clearAllHighlightsForCurrentBranchCommand = vscode.commands.registerCommand('extension.clearAllHighlightsForCurrentBranch', async () => {
+    await clearAllHighlightsForCurrentBranch();
   });
 
   // Command to reset highlight extension data for current folder across all branches
@@ -1075,7 +1104,15 @@ export function activate(context: vscode.ExtensionContext) {
     lastSelectionKey = selectionKey;
 
     selectionStableTimer = setTimeout(async () => {
+      if (!highlightingActive) {
+        return;
+      }
+
       const branch = await getGitBranchName(editor.document.uri);
+      if (!highlightingActive) {
+        return;
+      }
+
       const fileKey = getFileBranchKey(uri, branch);
       let highlights = fileHighlights.get(fileKey) || loadHighlights(uri, branch);
 
@@ -1263,6 +1300,7 @@ export function activate(context: vscode.ExtensionContext) {
     stopCommand,
     stopAndClearCommand,
     clearAllHighlightsPermanentlyCommand,
+    clearAllHighlightsForCurrentBranchCommand,
     resetHighlightsForCurrentFolderCommand,
     selectionListener,
     editorChangeListener,
