@@ -22,6 +22,7 @@
     "onCommand:extension.stopHighlighting",
     "onCommand:extension.stopAndClearHighlights",
     "onCommand:extension.clearAllHighlightsPermanently",
+    "onCommand:extension.clearAllHighlightsForCurrentBranch",
     "onCommand:extension.resetHighlightsForCurrentFolder"
   ],
   "main": "./out/extension.js",
@@ -49,6 +50,10 @@
         "title": "Highlight: Clear All Highlights Permanently (Current Branch)"
       },
       {
+        "command": "extension.clearAllHighlightsForCurrentBranch",
+        "title": "Highlight: Clear All Files Highlights (Current Branch)"
+      },
+      {
         "command": "extension.resetHighlightsForCurrentFolder",
         "title": "Highlight: Reset Highlight-It (Current Folder)"
       },
@@ -74,14 +79,14 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.101.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "20.x",
+    "@types/node": "^20.19.39",
+    "@types/vscode": "^1.101.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
-    "eslint": "^9.25.1",
-    "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
   }
 }
