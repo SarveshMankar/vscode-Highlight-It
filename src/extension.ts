@@ -19,6 +19,7 @@ let persistTimersByFileKey: Map<string, NodeJS.Timeout> = new Map();
 
 // Toggle state and timers for selection stability
 let highlightingActive = false;
+let highlightDisplayEnabled = false;
 let selectionStableTimer: NodeJS.Timeout | null = null;
 let branchRefreshTimer: NodeJS.Timeout | null = null;
 let branchPollTimer: NodeJS.Timeout | null = null;
@@ -71,6 +72,43 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
   private folderHighlightCounts = new Map<string, number>();
   private decorationsEnabled = true;
 
+  private toCanonicalUriString(uri: vscode.Uri): string {
+    if (uri.scheme !== 'file') {
+      return uri.toString();
+    }
+
+    // Explorer can request folder decorations with slightly different URI forms
+    // (for example with/without a trailing slash). Canonicalize to fsPath.
+    return vscode.Uri.file(path.normalize(uri.fsPath)).toString();
+  }
+
+  private hasHighlightedDescendant(folderUri: vscode.Uri): boolean {
+    if (folderUri.scheme !== 'file') {
+      return false;
+    }
+
+    const folderPath = path.normalize(folderUri.fsPath);
+    const folderPrefix = folderPath.endsWith(path.sep) ? folderPath : `${folderPath}${path.sep}`;
+
+    for (const highlightedFileUriString of this.highlightedFileUris) {
+      try {
+        const highlightedUri = vscode.Uri.parse(highlightedFileUriString);
+        if (highlightedUri.scheme !== 'file') {
+          continue;
+        }
+
+        const highlightedFilePath = path.normalize(highlightedUri.fsPath);
+        if (highlightedFilePath.startsWith(folderPrefix)) {
+          return true;
+        }
+      } catch {
+        // Ignore malformed URI entries.
+      }
+    }
+
+    return false;
+  }
+
   provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
     if (uri.scheme !== 'file') {
       return;
@@ -80,7 +118,7 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
       return;
     }
 
-    const uriString = uri.toString();
+    const uriString = this.toCanonicalUriString(uri);
     if (this.highlightedFileUris.has(uriString)) {
       return new vscode.FileDecoration(
         'H',
@@ -89,7 +127,7 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
       );
     }
 
-    if (this.highlightedFolderUris.has(uriString)) {
+    if (this.highlightedFolderUris.has(uriString) || this.hasHighlightedDescendant(uri)) {
       return new vscode.FileDecoration(
         'H',
         'This folder contains highlighted files',
@@ -272,7 +310,7 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
   }
 
   private setFileHighlightState(uri: vscode.Uri, hasHighlights: boolean): void {
-    const uriString = uri.toString();
+    const uriString = this.toCanonicalUriString(uri);
     const changedUriStrings = new Set<string>();
 
     if (hasHighlights) {
@@ -285,22 +323,29 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
   }
 
   private addHighlightedFileUri(fileUriString: string, changedUriStrings: Set<string>): void {
-    if (this.highlightedFileUris.has(fileUriString)) {
+    let canonicalFileUriString = fileUriString;
+    try {
+      canonicalFileUriString = this.toCanonicalUriString(vscode.Uri.parse(fileUriString));
+    } catch {
+      // Keep original URI key if parsing fails.
+    }
+
+    if (this.highlightedFileUris.has(canonicalFileUriString)) {
       return;
     }
 
-    this.highlightedFileUris.add(fileUriString);
-    changedUriStrings.add(fileUriString);
+    this.highlightedFileUris.add(canonicalFileUriString);
+    changedUriStrings.add(canonicalFileUriString);
 
     let fileUri: vscode.Uri;
     try {
-      fileUri = vscode.Uri.parse(fileUriString);
+      fileUri = vscode.Uri.parse(canonicalFileUriString);
     } catch {
       return;
     }
 
     const ancestors = this.getAncestorFolderUris(fileUri);
-    this.fileAncestorFolders.set(fileUriString, ancestors);
+    this.fileAncestorFolders.set(canonicalFileUriString, ancestors);
 
     for (const folderUriString of ancestors) {
       const previousCount = this.folderHighlightCounts.get(folderUriString) ?? 0;
@@ -315,14 +360,21 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
   }
 
   private removeHighlightedFileUri(fileUriString: string, changedUriStrings: Set<string>): void {
-    if (!this.highlightedFileUris.delete(fileUriString)) {
+    let canonicalFileUriString = fileUriString;
+    try {
+      canonicalFileUriString = this.toCanonicalUriString(vscode.Uri.parse(fileUriString));
+    } catch {
+      // Keep original URI key if parsing fails.
+    }
+
+    if (!this.highlightedFileUris.delete(canonicalFileUriString)) {
       return;
     }
 
-    changedUriStrings.add(fileUriString);
+    changedUriStrings.add(canonicalFileUriString);
 
-    const ancestors = this.fileAncestorFolders.get(fileUriString) ?? [];
-    this.fileAncestorFolders.delete(fileUriString);
+    const ancestors = this.fileAncestorFolders.get(canonicalFileUriString) ?? [];
+    this.fileAncestorFolders.delete(canonicalFileUriString);
 
     for (const folderUriString of ancestors) {
       const previousCount = this.folderHighlightCounts.get(folderUriString) ?? 0;
@@ -345,7 +397,7 @@ class HighlightDecorationProvider implements vscode.FileDecorationProvider {
     const workspaceRootPath = workspaceFolder?.uri.fsPath;
 
     while (true) {
-      ancestors.push(vscode.Uri.file(currentPath).toString());
+      ancestors.push(this.toCanonicalUriString(vscode.Uri.file(currentPath)));
 
       if (workspaceRootPath && path.normalize(currentPath) === path.normalize(workspaceRootPath)) {
         break;
@@ -716,7 +768,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   async function refreshVisibleEditorsFromBranchState(): Promise<void> {
-    if (!highlightingActive) {
+    if (!highlightDisplayEnabled) {
       return;
     }
 
@@ -771,6 +823,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to start highlight mode
   const startCommand = vscode.commands.registerCommand('extension.startHighlighting', async () => {
     highlightingActive = true;
+    highlightDisplayEnabled = true;
     highlightDecorationProvider.setDecorationsEnabled(true);
     await highlightDecorationProvider.rebuildFromCurrentBranchState();
     const editor = vscode.window.activeTextEditor;
@@ -867,6 +920,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to stop highlight mode without removing existing highlights
   const stopCommand = vscode.commands.registerCommand('extension.stopHighlighting', async () => {
     highlightingActive = false;
+    highlightDisplayEnabled = true;
 
     vscode.window.showInformationMessage('Highlighting mode stopped. Existing highlights are preserved.');
   });
@@ -874,6 +928,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to stop highlight mode and clear active editor decorations only
   const stopAndClearCommand = vscode.commands.registerCommand('extension.stopAndClearHighlights', async () => {
     highlightingActive = false;
+    highlightDisplayEnabled = false;
 
     // Clear in-memory highlights so next start reloads from persisted storage.
     fileHighlights.clear();
@@ -916,6 +971,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const targetBranch = await getGitBranchName(activeEditor.document.uri);
     highlightingActive = false;
+    highlightDisplayEnabled = true;
     lastSelectionKey = '';
 
     if (selectionStableTimer) {
@@ -1016,6 +1072,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     highlightingActive = false;
+    highlightDisplayEnabled = true;
 
     const allKeys = extensionContext.globalState.keys();
     let clearedFiles = 0;
@@ -1187,7 +1244,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Listener to reapply highlights when switching between files
   const editorChangeListener = vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-    if (editor && highlightingActive) {
+    if (editor && highlightDisplayEnabled) {
       const { highlights } = await getHighlightsForEditor(editor);
       applyHighlightsToEditor(editor, highlights);
     }
@@ -1232,7 +1289,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Fallback for checkout paths that do not emit filesystem events in the workspace.
   branchPollTimer = setInterval(async () => {
-    if (!highlightingActive) {
+    if (!highlightDisplayEnabled) {
       return;
     }
 
